@@ -1,0 +1,50 @@
+import os
+import io
+import asyncio
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import google.generativeai as genai
+from PIL import Image
+
+# Read API Keys automatically from Render environment variables
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Use Gemini 1.5 Flash
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("أهلاً بك! أنا الـ AI Agent الخاص بك. أرسل لي أي نص أو صورة وسأجيبك فوراً.")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    await update.message.chat.send_action(action="typing")
+    try:
+        response = model.generate_content(user_text)
+        await update.message.reply_text(response.text)
+    except Exception as e:
+        await update.message.reply_text(f"حدث خطأ: {str(e)}")
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.chat.send_action(action="typing")
+    photo_file = await update.message.photo[-1].get_file()
+    photo_bytes = await photo_file.download_as_bytearray()
+    image = Image.open(io.BytesIO(photo_bytes))
+    caption = update.message.caption or "اشرح لي هذه الصورة بالتفصيل."
+    try:
+        response = model.generate_content([caption, image])
+        await update.message.reply_text(response.text)
+    except Exception as e:
+        await update.message.reply_text(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
+
+def main():
+    TOKEN = os.environ.get("TELEGRAM_TOKEN")
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    print("Bot is running...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
